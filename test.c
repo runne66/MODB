@@ -14,9 +14,12 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h> 
 #include <sys/ioctl.h>
+#include <pthread.h>
+#include <linux/tcp.h>
 #include "open62541.h"
 
 #define opc_port 6666
+UA_Server *g_opc_server;
 typedef struct _DATA_SOURCE{
 	char* name;
 	int state;
@@ -24,11 +27,11 @@ typedef struct _DATA_SOURCE{
 DATA_SOURCE ANALOY[] = {
 	{"1", 0},
 	{"2", 0},
-	{"3", 0},
+	{"3", 1},
 	{"4", 0},
 	{"5", 0},
 	{"6", 0},
-	{"7", 0},
+	{"7", 1},
 	{"8", 0},
 	{"9", 0},
 	{"10", 0}
@@ -44,44 +47,52 @@ static void stopHandler(int sig) {
 void* nodeidFindData(const UA_NodeId nodeId) 
 {
 	int i;
-	for(i=0;i<sizeof(ANALOY)/sizeof(DATA_SOURCE);i++) {
-		if(strncmp((char*)nodeId.identifier.string.data, ANALOY[i].name, strlen(ANALOY[i].name)) == 0) {
+	for(i=0;i<sizeof(ANALOY)/sizeof(DATA_SOURCE);i++) 
+	{
+		if(strncmp((char*)nodeId.identifier.string.data, ANALOY[i].name, strlen(ANALOY[i].name)) == 0) 
+		{
 				return &ANALOY[i].state;			
+		}
 	}
 	printf("not find:%s!\n",nodeId.identifier.string.data);
 	return NULL;
 }
 
 static UA_StatusCode
-readDataSource()(void *handle, const UA_NodeId nodeId, UA_Boolean sourceTimeStamp,
+readDataSource(void *handle, const UA_NodeId nodeId, UA_Boolean sourceTimeStamp,
              const UA_NumericRange *range, UA_DataValue *value) {
 	if(range) {
         value->hasStatus = true;
         value->status = UA_STATUSCODE_BADINDEXRANGEINVALID;
         return UA_STATUSCODE_GOOD;
     }
-
+	UA_UInt32 currentUInt;
+	if(nodeidFindData(nodeId) != NULL)
+		currentUInt = *(UA_UInt32*)nodeidFindData(nodeId);
+	else 
+		currentUInt = 1;
+	value->sourceTimestamp = UA_DateTime_now();
 	value->hasValue = true;
-    UA_Variant_setScalarCopy(&value->value, (UA_UInt32*)handle, &UA_TYPES[UA_TYPES_INT32]);
-
+	value->hasSourceTimestamp = true;
+    UA_Variant_setScalarCopy(&value->value, &currentUInt, &UA_TYPES[UA_TYPES_INT32]);
     return UA_STATUSCODE_GOOD;
 }
 
-static UA_StatusCode
-writeDataSource(void *handle, const UA_NodeId nodeid,const UA_Variant *data, 
-		const UA_NumericRange *range) {
-		if(UA_Variant_isScalar(data) && data->type == &UA_TYPES[UA_TYPES_INT32] && data->data){
-        *(UA_UInt32*)handle = *(UA_UInt32*)data->data;
-    }
-	    return UA_STATUSCODE_GOOD;		
-}
+ //static UA_StatusCode
+// writeDataSource(void *handle, const UA_NodeId nodeid,const UA_Variant *data, 
+		// const UA_NumericRange *range) {
+		// if(UA_Variant_isScalar(data) && data->type == &UA_TYPES[UA_TYPES_INT32] && data->data){
+        // *(UA_UInt32*)handle = *(UA_UInt32*)data->data;
+    // }
+	    // return UA_STATUSCODE_GOOD;		
+//}
 			 
 void add_dataSource_to_opcServer()
 {
 	int i;
 	for(i=0;i<sizeof(ANALOY)/sizeof(DATA_SOURCE);i++) {
 		UA_DataSource dateDataSource = (UA_DataSource) {.handle = NULL, .read = readDataSource, 
-		.write = writeDataSource(void *handle, const UA_NodeId nodeId, UA_Boolean sourceTimeStamp,};
+		.write = NULL};
 		
 		UA_VariableAttributes *attr = UA_VariableAttributes_new();
     	UA_VariableAttributes_init(attr);
@@ -98,7 +109,8 @@ void add_dataSource_to_opcServer()
 //	                              parentReferenceNodeId, myIntegerName,
 //	                              UA_NODEID_NULL, *attr, NULL, NULL);
 		  UA_Server_addDataSourceVariableNode(g_opc_server, myIntegerNodeId,parentNodeId,
-	                              					parentReferenceNodeId, myIntegerName,                                      
+	                              					parentReferenceNodeId, myIntegerName,
+                                                UA_NODEID_NULL, *attr, dateDataSource, NULL);                                     
 	}
 }
 
@@ -115,7 +127,7 @@ void handle_opcua_server(void * arg){
 		/* add a variable node to the address space */
     UA_VariableAttributes attr;
     UA_VariableAttributes_init(&attr);
-    UA_Int32 myInteger = 42
+    UA_Int32 myInteger = 42;
     UA_Variant_setScalar(&attr.value, &myInteger, &UA_TYPES[UA_TYPES_INT32]);
     attr.description = UA_LOCALIZEDTEXT("en_US","the answer");
     attr.displayName = UA_LOCALIZEDTEXT("en_US","the answer");
@@ -138,7 +150,11 @@ int main()
 	{
 		printf("%s ", ANALOY[i].name);
 	}
-	handle_opcua_server;
+		pthread_t opcua_server_id;
+		pthread_create(&opcua_server_id,NULL,(void *)handle_opcua_server,NULL);
+	while(1) {
+		sleep(1);
+	}
 	return 0;
 }
 
